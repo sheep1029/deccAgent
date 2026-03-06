@@ -42,7 +42,7 @@ COOP_SUFFIX_EN = ", it is BDEE/USTS employee information"
 
 # 传参固定配置
 GATEWAY = 6   # HDFS
-DECC_V3_DATA_TYPE = 2  # 默认数据
+DECC_V3_DATA_TYPE = 3  # 3-Aggregates User Data；2-Default Data
 DECC_V3_IDL_TYPE = "hive-ddl"
 
 # vgeo到scenario的映射
