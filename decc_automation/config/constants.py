@@ -16,7 +16,16 @@ DECC_V3_CONFIG = {
         "get_data_version_detail": "/openapi/data_version/detail",
         "update_data_version": "/openapi/data_version/update",
         "create_data": "/openapi/data/create",
-        "submit_data_version": "/openapi/data_version/submit"
+        "submit_data_version": "/openapi/data_version/submit",
+        "create_data_version": "/openapi/data_version/create"
+    }
+}
+
+# Coral API 配置 (用于获取 DDL)
+CORAL_CONFIG = {
+    "base_url": "https://bc-sg-gw.tiktok-row.net",
+    "endpoints": {
+        "get_hive_ddl": "/v2/bridge/hive/ddl",
     }
 }
 
