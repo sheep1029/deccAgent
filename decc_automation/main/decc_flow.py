@@ -103,6 +103,10 @@ class DECCFlowV3:
             ddl = self._add_extra_columns_to_ddl(ddl, additions)
         table_info = self.coral.get_table_info(region, db, table)
         ddl_info: DDLInfo = self.llm.process_ddl(ddl, table_info=table_info, nested_ddl_info=None, nested_map_defs=map_defs)
+
+        # 使用 LLM 推荐字段标签
+        field_tags = self.llm.recommend_field_tags(ddl_info)
+
         english_ddl = ddl
         try:
             english_ddl = self.llm._generate_english_ddl(ddl_info, ddl)
@@ -112,7 +116,13 @@ class DECCFlowV3:
                   for c in ddl_info.columns]
         from decc_automation.processors.json_schema_builder import JSONSchemaBuilder
         builder = JSONSchemaBuilder()
-        json_schema_str = builder.build_from_ddl_fields(fields, vgeo=vgeo, nested_map_defs=map_defs, llm_field_desc_map=getattr(ddl_info, 'field_desc_map', None))
+        json_schema_str = builder.build_from_ddl_fields(
+            fields,
+            vgeo=vgeo,
+            nested_map_defs=map_defs,
+            llm_field_desc_map=getattr(ddl_info, 'field_desc_map', None),
+            preloaded_tags=field_tags
+        )
         nested_idl = self.llm.build_nested_idl_from_map_defs(ddl_info, map_defs)
 
         default_target = "ROW-TT" if vgeo == "US" else vgeo
@@ -128,6 +138,13 @@ class DECCFlowV3:
                 description=ddl_info.description, extra_data=extra_data
             )
             self.service._prevalidate_payload_no_chinese(payload)
+
+            # 打印完整的 Create Payload
+            print("\n" + "="*50)
+            print(">>> 准备创建数据 (Create Payload) <<<")
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            print("="*50 + "\n")
+
             create_result = self.api.create_data(payload)
             return create_result
 
@@ -184,6 +201,13 @@ class DECCFlowV3:
             update_payload["data"]["json_schema"] = json_schema_str
 
         self.service._prevalidate_payload_no_chinese(update_payload)
+
+        # 打印完整的 Update Payload
+        print("\n" + "="*50)
+        print(">>> 准备提交版本 (Update Payload) <<<")
+        print(json.dumps(update_payload, ensure_ascii=False, indent=2))
+        print("="*50 + "\n")
+
         update_result = self.api.update_data_version(update_payload)
         return update_result
 

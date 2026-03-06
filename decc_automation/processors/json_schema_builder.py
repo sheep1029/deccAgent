@@ -13,6 +13,16 @@ class JSONSchemaBuilder:
     def __init__(self) -> None:
         self.tag_manager = TagManager()
 
+    def _is_account_info_tag(self, tag_id: str) -> bool:
+        """
+        判断标签是否属于账户信息 (Account Info)
+        根据 Tag ID 判断，如果以 '4.1' 开头（维度/属性，包括 Account），则默认为 True
+        """
+        if not tag_id:
+            return False
+        # Account property (4.1.2), Advertiser (4.1.6) 等均属于 4.1.x
+        return str(tag_id).startswith('4.1')
+
     def _build_property_def(self, field_name: str, field_type: str, field_comment: str,
                              vgeo: Optional[str] = None,
                              nested_map_defs: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -29,10 +39,10 @@ class JSONSchemaBuilder:
             "description": desc,
             "type": json_type,
             "des": {
-                "original_type": field_type,
-                "tag": tag,
+                "original_type": field_type.lower(),
+                "aggr_type": tag,
                 "sync": "YES",
-                "tpg_account_info_tag": {"is_account_info": False},
+                "tpg_account_info_tag": {"is_account_info": self._is_account_info_tag(tag)},
                 "ciphered_tag": {}
             }
         }
@@ -45,8 +55,8 @@ class JSONSchemaBuilder:
                 "type": mapped_item_type,
                 "description": item_desc,
                 "des": {
-                    "original_type": item_type,
-                    "tag": tag,
+                    "original_type": item_type.lower(),
+                    "aggr_type": tag,
                     "sync": "YES"
                 }
             }
@@ -69,8 +79,8 @@ class JSONSchemaBuilder:
                     "description": child_desc,
                     "type": child_json_type,
                     "des": {
-                        "original_type": value_type,
-                        "tag": tag,
+                        "original_type": value_type.lower(),
+                        "aggr_type": tag,
                         "sync": "YES"
                     }
                 }
@@ -80,8 +90,8 @@ class JSONSchemaBuilder:
                     child_def["items"] = {
                         "type": mapped_item_type,
                         "des": {
-                            "original_type": item_type,
-                            "tag": tag,
+                            "original_type": item_type.lower(),
+                            "aggr_type": tag,
                             "sync": "YES"
                         }
                     }
@@ -90,17 +100,23 @@ class JSONSchemaBuilder:
 
     def build_from_ddl_fields(self, fields: List[Dict[str, str]], vgeo: Optional[str] = None,
                               nested_map_defs: Optional[Dict[str, Dict[str, Any]]] = None,
-                              llm_field_desc_map: Optional[Dict[str, str]] = None) -> str:
+                              llm_field_desc_map: Optional[Dict[str, str]] = None,
+                              preloaded_tags: Optional[Dict[str, str]] = None) -> str:
         """
         从DDL字段列表构建JSON Schema字符串
 
         Args:
             fields: 字段列表，每个字段包含name, type, comment等
+            preloaded_tags: 预加载的标签字典 {field_name: tag_id}
 
         Returns:
             JSON Schema字符串
         """
         logger.info(f"从DDL字段构建JSON Schema，字段数: {len(fields)}")
+
+        # 预加载标签
+        if preloaded_tags:
+            self.tag_manager.preload_tags(preloaded_tags)
 
         schema = {
             "type": "object",

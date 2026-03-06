@@ -13,9 +13,9 @@ logging.basicConfig(
 
 # 模拟的 Event 数据
 test_event = {
-   "region": "US", 
-   "tables": "ad_dwa.dwa_ole_vo_signal_quantity_spearman_r7d_df_utc0", 
-   "owner": "zhuojinghao.1029" 
+   "region": "US",
+   "tables": "ad_dwa.dwa_ole_promocode_creation_advertiser_v2_df_utc0",
+   "owner": "zhuojinghao.1029"
 }
 
 print(f"🚀 开始执行测试，参数: {json.dumps(test_event, ensure_ascii=False)}")
@@ -23,15 +23,15 @@ print(f"🚀 开始执行测试，参数: {json.dumps(test_event, ensure_ascii=F
 try:
     # 直接调用 handler
     response = handler(test_event, None)
-    
+
     print("\n✅ 执行完成！")
     print("--- 响应结果 ---")
     print(json.dumps(response, indent=2, ensure_ascii=False))
-    
+
     # 检查是否有错误信息
     if response.get('statusCode') != 200:
         print("\n❌ 状态码非 200，执行可能失败")
-    
+
     body = json.loads(response.get('body', '{}'))
     if isinstance(body, dict):
         if not body.get('success') and 'results' not in body:

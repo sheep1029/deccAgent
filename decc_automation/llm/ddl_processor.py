@@ -52,11 +52,11 @@ class ParsedDDL:
 
 
 class LLMDDLProcessor:
-    
+
     def __init__(self, api_key: str = None, base_url: str = None, model: str = None):
         """
         初始化LLM DDL处理器
-        
+
         Args:
             api_key: Ark API密钥
             base_url: API基础URL
@@ -65,37 +65,37 @@ class LLMDDLProcessor:
         self.api_key = api_key or LLMConfigManager.get_api_key() or os.getenv("ARK_API_KEY")
         self.base_url = base_url or LLMConfigManager.get_base_url()
         self.model = model or LLMConfigManager.get_model()
-        
+
         if not self.api_key:
             raise ValueError("LLM API key未配置")
-        
+
         self.client = OpenAI(
             api_key=self.api_key,
             base_url=self.base_url
         )
-        
+
         self.max_tokens = LLMConfigManager.get_max_tokens()
         self.temperature = LLMConfigManager.get_temperature()
         self.thinking = LLMConfigManager.get_thinking()
-    
+
     def _find_matching_paren(self, text: str, start_index: int = 0) -> int:
         """从指定的起始索引开始，找到匹配的右括号，正确处理SQL字符串和注释。"""
         if text[start_index] != '(':
             raise ValueError("起始索引处没有左括号")
-        
+
         depth = 1
         in_single_quote = False
         in_double_quote = False
-        
+
         i = start_index + 1
         while i < len(text):
             char = text[i]
-            
+
             if char == "'" and (i == 0 or text[i-1] != '\\'):
                 in_single_quote = not in_single_quote
             elif char == '"' and (i == 0 or text[i-1] != '\\'):
                 in_double_quote = not in_double_quote
-            
+
             if not in_single_quote and not in_double_quote:
                 if char == '(':
                     depth += 1
@@ -104,18 +104,18 @@ class LLMDDLProcessor:
                     if depth == 0:
                         return i
             i += 1
-        
+
         return -1
 
     def _parse_ddl_structure(self, ddl: str, table_info: Dict[str, str]) -> ParsedDDL:
         """使用更健壮的方式精确解析DDL结构，支持复杂类型和多个分区字段。"""
         logger.info("开始解析DDL结构...")
-        
+
         table_pattern = r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:`([^`]+)`\.)?`([^`]+)`|([^\s\.]+)(?:\.([^\s\(\)]+))?)\s*\('
         table_name_match = re.search(table_pattern, ddl, re.IGNORECASE)
         if not table_name_match:
             raise ValueError("无法解析表名")
-        
+
         groups = table_name_match.groups()
         if groups[0] and groups[1]:
             database = groups[0]
@@ -133,23 +133,23 @@ class LLMDDLProcessor:
         close_paren_index = self._find_matching_paren(ddl, open_paren_index)
         if close_paren_index == -1:
             raise ValueError("无法找到字段定义的匹配')'")
-        
+
         fields_section = ddl[open_paren_index + 1 : close_paren_index]
-        
+
         partition_section = ""
         remaining_ddl = ddl[close_paren_index:]
         partition_match = re.search(r'\s+PARTITIONED\s+BY\s*\(', remaining_ddl, re.IGNORECASE)
-        
+
         if partition_match:
             part_open_paren_index = close_paren_index + partition_match.end() - 1
             part_close_paren_index = self._find_matching_paren(ddl, part_open_paren_index)
-            
+
             if part_close_paren_index != -1:
                 partition_section = ddl[part_open_paren_index + 1 : part_close_paren_index]
 
         columns = self._parse_columns(fields_section)
         partition_columns = self._parse_columns(partition_section) if partition_section else []
-        
+
         return ParsedDDL(
             table_name=table_name,
             database=database,
@@ -158,12 +158,12 @@ class LLMDDLProcessor:
             partition_columns=partition_columns,
             original_ddl=ddl
         )
-    
+
     def _parse_columns(self, column_section: str) -> List[Dict[str, Any]]:
         """解析字段定义"""
         columns = []
         field_defs = self._split_fields(column_section)
-        
+
         # 正则表达式解析单个字段定义: `name` type COMMENT 'comment'
         # 修正: 允许字段名以数字开头
         field_regex = re.compile(
@@ -186,9 +186,9 @@ class LLMDDLProcessor:
                 })
             elif field_def: # 记录无法匹配的字段以供调试
                 logger.warning(f"无法使用正则表达式解析字段定义: '{field_def}'")
-        
+
         return columns
-    
+
     def _split_fields(self, column_section: str) -> List[str]:
         """智能分割字段"""
         fields = []
@@ -197,16 +197,16 @@ class LLMDDLProcessor:
         angle_depth = 0
         in_single_quote = False
         in_double_quote = False
-        
+
         i = 0
         while i < len(column_section):
             char = column_section[i]
-            
+
             if char == "'" and (i == 0 or column_section[i-1] != '\\'):
                 in_single_quote = not in_single_quote
             elif char == '"' and (i == 0 or column_section[i-1] != '\\'):
                 in_double_quote = not in_double_quote
-            
+
             if not in_single_quote and not in_double_quote:
                 if char == '(':
                     paren_depth += 1
@@ -222,21 +222,21 @@ class LLMDDLProcessor:
                     current_field = ""
                     i += 1
                     continue
-            
+
             current_field += char
             i += 1
-        
+
         if current_field.strip():
             fields.append(current_field.strip())
-        
-        return fields    
+
+        return fields
     # 第二步：LLM生成描述（内容创作）
     def _generate_descriptions_with_llm(self, parsed_ddl: ParsedDDL, nested_map_defs: Dict[str, Dict[str, Any]] = None) -> Dict[str, Any]:
         """使用LLM一次性生成表描述和所有字段描述"""
         logger.info("开始LLM生成表和字段描述...")
-        
+
         all_fields = self._collect_all_fields(parsed_ddl, nested_map_defs)
-        
+
         prompt = f"""
 基于以下数据库表信息，生成详细的表描述和所有字段的英文描述。
 
@@ -280,16 +280,16 @@ class LLMDDLProcessor:
                 "max_tokens": self.max_tokens,
                 "temperature": self.temperature,
             }
-            
+
             if isinstance(self.thinking, dict):
                 request_params["extra_body"] = {"thinking": self.thinking}
-            
+
             response = self.client.chat.completions.create(**request_params)
             result_text = response.choices[0].message.content.strip()
-            
+
             # 解析响应
             result = self._parse_combined_description_response(result_text)
-            
+
             # 确保所有字段都有描述（包含map子键）
             all_field_names = {f['name'] for f in all_fields}
             field_descriptions = result.get('field_descriptions', {})
@@ -304,17 +304,17 @@ class LLMDDLProcessor:
                 raise ValueError(
                     f"LLM未返回完整描述，缺失字段: {', '.join(missing_fields) if missing_fields else '无'}；表描述为空"
                 )
-            
+
             return {
                 'table_description': table_desc,
                 'field_descriptions': field_descriptions
             }
-            
+
         except Exception as e:
             logger.error(f"LLM生成描述失败: {e}")
             # 截断流程：抛错以终止主流程
             raise
-    
+
     def _parse_combined_description_response(self, response_text: str) -> Dict[str, Any]:
         """解析LLM的表和字段描述组合响应"""
         try:
@@ -329,14 +329,14 @@ class LLMDDLProcessor:
                 end = response_text.find("```", start)
                 if end != -1:
                     response_text = response_text[start:end]
-            
+
             response_text = response_text.strip()
             return json.loads(response_text)
-            
+
         except json.JSONDecodeError as e:
             logger.error(f"解析LLM组合描述响应失败: {e}")
             return {}
-    
+
     def _clean_and_verify_description(self, description: str) -> str:
         """
         最终清理和验证描述：
@@ -345,13 +345,13 @@ class LLMDDLProcessor:
         """
         # 1. 移除中文字符
         text_no_chinese = re.sub(r'[\u4e00-\u9fa5]', '', description)
-        
+
         # 2. 移除特殊符号
         special_chars = [';', '\'', '"', '[', ']', '{', '}', '|', '\\', '<', '>','.']
         cleaned_text = text_no_chinese
         for char in special_chars:
             cleaned_text = cleaned_text.replace(char, ' ')
-            
+
         # 3. 清理多余的空格
         return ' '.join(cleaned_text.split())
 
@@ -359,11 +359,11 @@ class LLMDDLProcessor:
     def _build_complete_ddl_info(self, parsed_ddl: ParsedDDL, llm_result: Dict[str, Any]) -> DDLInfo:
         """将解析的结构和LLM生成的描述拼接成完整的DDLInfo"""
         logger.info("开始拼接完整DDL信息...")
-        
+
         # 提取表描述和字段描述
         raw_table_description = llm_result.get('table_description', "")
         field_descriptions = llm_result.get('field_descriptions', {})
-        
+
         # 清理和验证表描述
         table_description = self._clean_and_verify_description(raw_table_description)
 
@@ -378,13 +378,13 @@ class LLMDDLProcessor:
             self._build_column_info_for(col, field_descriptions, tag_manager, is_us_or_eu, suffix)
             for col in parsed_ddl.columns
         ]
-        
+
         # 构建分区字段信息
         partition_columns = [
             self._build_column_info_for(col, field_descriptions, tag_manager, is_us_or_eu, suffix)
             for col in parsed_ddl.partition_columns
         ]
-        
+
         # 保存字段描述映射（包含map子键）
         field_desc_map = {k: self._clean_and_verify_description(v) for k, v in field_descriptions.items()}
 
@@ -397,50 +397,50 @@ class LLMDDLProcessor:
             partition_columns=partition_columns,
             field_desc_map=field_desc_map
         )
-    
-    
+
+
     def process_ddl(self, ddl: str, table_info: Dict[str, str], nested_ddl_info: Dict[str, Dict[str, str]] = None, nested_map_defs: Dict[str, Dict[str, Any]] = None) -> DDLInfo:
         """
-        
+
         Args:
             ddl: DDL字符串
             table_info: 表信息字典
             nested_ddl_info: MAP字段信息
-            
+
         Returns:
             DDLInfo: 处理后的DDL信息
         """
         if not ddl or not ddl.strip():
             raise ValueError("DDL不能为空")
-        
+
         try:
             logger.info("开始DDL处理流程...")
-            
+
             # 第一步：代码解析DDL
             parsed_ddl = self._parse_ddl_structure(ddl, table_info)
             logger.info(f"解析完成：表{parsed_ddl.table_name}，共{len(parsed_ddl.columns)}个字段")
-            
+
             # 第二步：LLM生成描述
             llm_result = self._generate_descriptions_with_llm(parsed_ddl, nested_map_defs)
             logger.info("LLM生成表和字段描述完成")
-            
+
             # 第三步：代码拼接完整数据
             ddl_info = self._build_complete_ddl_info(parsed_ddl, llm_result)
             logger.info("DDL信息拼接完成")
-            
+
             return ddl_info
-            
+
         except Exception as e:
             logger.error(f"DDL处理失败: {e}")
             raise
-    
+
     def _generate_english_ddl(self, ddl_info: DDLInfo, original_ddl: str) -> str:
         result = original_ddl
         field_desc_map = ddl_info.field_desc_map or {}
-        
+
         for field_name, new_description in field_desc_map.items():
             pattern = rf'(\s*)(`?){re.escape(field_name)}(`?)\s+([\w<>\s,\(\)"\'\-\.:]+?(?:<(?:[^<>]|(?:<[^<>]*>))*>)?)\s+COMMENT\s+[\'\"]([^\'\"]*)[\'\"]([^\n]*)'
-            
+
             def replace_single_field(match):
                 indent = match.group(1)
                 backtick_start = match.group(2)
@@ -448,14 +448,110 @@ class LLMDDLProcessor:
                 field_type = match.group(4)
                 original_comment = match.group(5)
                 suffix = match.group(6)
-                
+
                 return f"{indent}{backtick_start}{field_name}{backtick_end} {field_type} COMMENT '{new_description}'{suffix}"
-            
+
             result = re.sub(pattern, replace_single_field, result, flags=re.MULTILINE)
-        
+
         # 去除可能包含中文的别名等属性，尤其是TBLPROPERTIES中的 alias 项
         result = self._remove_ddl_alias_and_chinese(result)
         return result
+
+    def _read_tag_mapping(self) -> str:
+        """读取标签映射文档"""
+        try:
+            mapping_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'tag_mapping.md')
+            with open(mapping_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"读取标签映射文档失败: {e}")
+            return ""
+
+    def recommend_field_tags(self, ddl_info: DDLInfo) -> Dict[str, str]:
+        """
+        使用 LLM 根据 Tag Mapping 推荐字段标签
+        """
+        logger.info("开始 LLM 字段打标推荐...")
+
+        tag_mapping_content = self._read_tag_mapping()
+        if not tag_mapping_content:
+            logger.warning("未找到标签映射文档，跳过 LLM 打标推荐")
+            return {}
+
+        # 准备字段信息列表
+        fields_info = []
+        for col in ddl_info.columns:
+            fields_info.append({
+                "name": col.name,
+                "type": col.type,
+                "comment": col.original_comment, # 使用原始中文注释辅助判断
+                "english_description": col.description # 使用生成的英文描述辅助判断
+            })
+
+        # 提示词
+        prompt = f"""
+你是一个数据治理专家。请根据以下《Tag ID 映射文档》和《字段列表》，为每个字段推荐最合适的 Tag ID。
+
+### Tag ID 映射文档
+{tag_mapping_content}
+
+### 字段列表
+{json.dumps(fields_info, ensure_ascii=False, indent=2)}
+
+### 要求
+1. 仔细阅读 Tag ID 映射文档，理解每个 Tag ID 的定义和适用场景。
+2. 分析每个字段的名称、类型、注释和英文描述。
+3. **优先匹配**：如果字段含义与文档中某个 Tag ID 的描述高度匹配（如 Country -> 4.1.11, Account -> 4.1.2, Aggregated Metric -> 4.2.x），请推荐该 Tag ID。
+4. **默认规则**：如果字段在文档中找不到合适的 Tag ID，或者属于系统字段（如创建时间、日期分区），请推荐 Tag ID "2" (Default Data)。
+5. **兜底策略**：不要强行匹配不相关的 Tag。如果不确定，使用 "2"。
+6. **输出格式**：返回一个 JSON 对象，键为字段名，值为推荐的 Tag ID（字符串格式）。
+7. 只返回 JSON，不要包含 Markdown 标记或其他解释。
+
+### 示例输出
+{{
+  "user_id": "4.1.3",
+  "email": "4.1.1",
+  "device_id": "4.2.4",
+  "created_at": "2",
+  "country": "3"
+}}
+"""
+
+        try:
+            request_params = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "你是专业的数据治理专家，负责识别数据敏感分级并打标。"
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": self.max_tokens,
+                "temperature": 0.1, # 低温度以保证稳定性
+            }
+
+            if isinstance(self.thinking, dict):
+                request_params["extra_body"] = {"thinking": self.thinking}
+
+            response = self.client.chat.completions.create(**request_params)
+            result_text = response.choices[0].message.content.strip()
+
+            # 解析 JSON
+            result = self._parse_combined_description_response(result_text)
+
+            # 验证结果格式
+            validated_result = {}
+            for field_name, tag_id in result.items():
+                if isinstance(field_name, str) and isinstance(tag_id, (str, int, float)):
+                    validated_result[field_name] = str(tag_id)
+
+            logger.info(f"LLM 打标推荐完成，共推荐 {len(validated_result)} 个字段")
+            return validated_result
+
+        except Exception as e:
+            logger.error(f"LLM 打标推荐失败: {e}")
+            return {}
 
     def _remove_ddl_alias_and_chinese(self, ddl_str: str) -> str:
         """清理DDL中不允许的内容：
@@ -512,14 +608,14 @@ class LLMDDLProcessor:
             chinese_description=col['comment'],
             original_comment=col['comment']
         )
-    
+
     def _extract_map_value_type(self, map_type: str) -> str:
         """提取MAP的value类型"""
         match = re.search(r'MAP<[^,]+,\\s*([^>]+)>', map_type.upper())
         if match:
             return match.group(1).strip()
         return "STRING"
-    
+
 
 
     def build_nested_idl_from_map_defs(self, ddl_info: DDLInfo, map_defs: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -589,4 +685,3 @@ class LLMDDLProcessor:
             "string_fields": string_fields,
             "strings": []
         }
-    

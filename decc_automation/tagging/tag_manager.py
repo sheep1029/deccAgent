@@ -4,39 +4,60 @@
 """
 
 import logging
-from typing import List
+from typing import List, Dict, Optional
 
 from decc_automation.config.constants import COPERATION_LIST, TAG_COPERATION, TAG_ENGINEERING
 
 logger = logging.getLogger(__name__)
 
 class TagManager:
-    """标签管理器，处理字段标签的分配（单列表方案）"""
+    """标签管理器，处理字段标签的分配（支持LLM预加载和单列表模糊匹配）"""
     
     def __init__(self):
         # 统一使用单列表进行模糊匹配
         self.coperation_keywords = [k.lower() for k in COPERATION_LIST]
         self.tag_coperation = TAG_COPERATION
         self.tag_engineering = TAG_ENGINEERING
+        # 预加载的标签映射 {field_name: tag_id}
+        self.preloaded_tags: Dict[str, str] = {}
     
+    def preload_tags(self, tags_map: Dict[str, str]) -> None:
+        """
+        预加载字段标签映射（通常来自LLM推荐）
+        
+        Args:
+            tags_map: 字段名到标签ID的映射
+        """
+        if tags_map:
+            self.preloaded_tags.update(tags_map)
+            logger.info(f"已预加载 {len(tags_map)} 个字段的标签映射")
+
     def get_field_tag(self, field_name: str) -> str:
         """
-        根据字段名确定标签类型（单列表模糊匹配）
+        根据字段名确定标签类型。
+        优先查找预加载的映射（LLM结果），未命中则回退到关键词模糊匹配。
         
         Args:
             field_name: 字段名称
             
         Returns:
-            str: 标签值，合作数据为"7"，工程数据为"6.1"
+            str: 标签ID
         """
+        # 1. 优先查找预加载映射 (精确匹配)
+        if field_name in self.preloaded_tags:
+            tag = self.preloaded_tags[field_name]
+            # 简单验证 tag 是否有效，若为空则继续走兜底
+            if tag and str(tag).strip():
+                logger.debug(f"字段 {field_name} 使用预加载标签: {tag}")
+                return str(tag)
+
+        # 2. 兜底逻辑：单列表模糊匹配
         field_name_lower = field_name.lower()
-        
-        # 单列表模糊匹配
         if any(keyword in field_name_lower for keyword in self.coperation_keywords):
             logger.debug(f"字段 {field_name} 匹配到合作数据关键词")
             return self.tag_coperation
         
-        # 默认返回工程数据标签
+        # 3. 默认返回工程数据标签
         logger.debug(f"字段 {field_name} 标记为工程数据")
         return self.tag_engineering
     
