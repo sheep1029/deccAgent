@@ -2,6 +2,8 @@
 import json
 import logging
 import sys
+import decc_automation
+print(f"DEBUG: decc_automation path: {decc_automation.__file__}")
 from index import handler
 
 # 配置日志输出到控制台，确保能看到详细信息

@@ -501,19 +501,21 @@ class LLMDDLProcessor:
 ### 要求
 1. 仔细阅读 Tag ID 映射文档，理解每个 Tag ID 的定义和适用场景。
 2. 分析每个字段的名称、类型、注释和英文描述。
-3. **优先匹配**：如果字段含义与文档中某个 Tag ID 的描述高度匹配（如 Country -> 4.1.11, Account -> 4.1.2, Aggregated Metric -> 4.2.x），请推荐该 Tag ID。
-4. **默认规则**：如果字段在文档中找不到合适的 Tag ID，或者属于系统字段（如创建时间、日期分区），请推荐 Tag ID "2" (Default Data)。
-5. **兜底策略**：不要强行匹配不相关的 Tag。如果不确定，使用 "2"。
+3. **严格限制**：只能使用 Tag ID 映射文档中出现的 ID。绝对不准使用文档之外的 ID（如 "2" 或 "3"）。
+4. **优先匹配**：如果字段含义与文档中某个 Tag ID 的描述高度匹配（如 Country -> 4.1.11, Account -> 4.1.2, Aggregated Metric -> 4.2.x），请推荐该 Tag ID。
+5. **兜底规则**：如果字段在文档中找不到非常精准的匹配：
+    - 如果是描述性维度或分类属性，请推荐 **"4.1.3"** (ads attributes)。
+    - 如果是统计数值或聚合指标，请推荐 **"4.2.3"** (Aggregated data of ads product)。
+    - 对于日期/时间分区字段，请推荐 **"4.1.22"** (Time period)。
 6. **输出格式**：返回一个 JSON 对象，键为字段名，值为推荐的 Tag ID（字符串格式）。
 7. 只返回 JSON，不要包含 Markdown 标记或其他解释。
 
 ### 示例输出
 {{
-  "user_id": "4.1.3",
+  "user_id": "4.1.2",
   "email": "4.1.1",
-  "device_id": "4.2.4",
-  "created_at": "2",
-  "country": "3"
+  "total_revenue": "4.2.14",
+  "p_date": "4.1.22"
 }}
 """
 

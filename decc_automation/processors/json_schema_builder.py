@@ -24,6 +24,13 @@ class JSONSchemaBuilder:
         # Account property (4.1.2), Advertiser (4.1.6) 等均属于 4.1.x
         return str(tag_id).startswith('4.1')
 
+    def _normalize_type(self, hive_type: str) -> str:
+        """标准化类型名称，例如 int -> integer"""
+        t = hive_type.lower().strip()
+        if t == 'int':
+            return 'integer'
+        return t
+
     def _build_property_def(self, field_name: str, field_type: str, field_comment: str,
                              vgeo: Optional[str] = None,
                              nested_map_defs: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -36,30 +43,55 @@ class JSONSchemaBuilder:
             if not desc.endswith(COOP_SUFFIX_EN):
                 desc += COOP_SUFFIX_EN
 
+        # 标准化类型
+        normalized_type = self._normalize_type(field_type)
+        if "ARRAY" in field_type.upper():
+            item_type_raw = self._extract_array_item_type(field_type)
+            normalized_item_type = self._normalize_type(item_type_raw)
+            # 数组类型的 original_type 格式化为 "array< item_type >"
+            normalized_type = f"array< {normalized_item_type} >"
+
         prop: Dict[str, Any] = {
+            "title": field_name,
             "description": desc,
             "type": json_type,
             "des": {
-                "original_type": field_type.lower(),
+                "original_type": normalized_type,
                 "aggr_type": tag,
                 "sync": "YES",
                 "tpg_account_info_tag": {"is_account_info": self._is_account_info_tag(tag)},
                 "ciphered_tag": {}
-            }
+            },
+            "items": None,
+            "properties": None,
+            "uneditable": ["data_subject", "user_region", "sync"],
+            "patternProperties": None,
+            "original_type": normalized_type  # 参考 Schema 中外层也有 original_type
         }
 
         if "ARRAY" in field_type.upper():
             item_type = self._extract_array_item_type(field_type)
             mapped_item_type = 'object' if item_type.upper().startswith('STRUCT') else HIVE_TYPE_MAP_DECC_TYPE.get(item_type.upper(), 'string')
             item_desc = prop.get("description") or field_comment or f"Items of {field_name}"
+
+            # 使用前面计算好的 normalized_item_type (注意: 这里需要重新计算，因为上面的变量作用域可能不够清晰)
+            norm_item_type = self._normalize_type(item_type)
+
             prop["items"] = {
                 "type": mapped_item_type,
                 "description": item_desc,
                 "des": {
-                    "original_type": item_type.lower(),
+                    "original_type": norm_item_type,
                     "aggr_type": tag,
-                    "sync": "YES"
-                }
+                    "sync": "YES",
+                    "tpg_account_info_tag": {"is_account_info": self._is_account_info_tag(tag)},
+                    "ciphered_tag": {}
+                },
+                "items": None,
+                "properties": None,
+                "uneditable": ["data_subject", "user_region", "sync"],
+                "patternProperties": None,
+                "original_type": norm_item_type
             }
 
         if "MAP" in field_type.upper() and nested_map_defs and field_name in nested_map_defs:
@@ -77,24 +109,47 @@ class JSONSchemaBuilder:
                     if not child_desc.endswith(COOP_SUFFIX_EN):
                         child_desc += COOP_SUFFIX_EN
                 child_def: Dict[str, Any] = {
+                    "title": key,
                     "description": child_desc,
                     "type": child_json_type,
                     "des": {
                         "original_type": value_type.lower(),
                         "aggr_type": tag,
-                        "sync": "YES"
-                    }
+                        "sync": "YES",
+                        "tpg_account_info_tag": {"is_account_info": self._is_account_info_tag(tag)},
+                        "ciphered_tag": {}
+                    },
+                    "items": None,
+                    "properties": None,
+                    "uneditable": ["data_subject", "user_region", "sync"],
+                    "patternProperties": None,
+                    "original_type": value_type.lower()
                 }
+
+                # 处理嵌套的 ARRAY
                 if "ARRAY" in value_type.upper():
-                    item_type = self._extract_array_item_type(value_type)
-                    mapped_item_type = 'object' if item_type.upper().startswith('STRUCT') else HIVE_TYPE_MAP_DECC_TYPE.get(item_type.upper(), 'string')
+                    sub_item_type = self._extract_array_item_type(value_type)
+                    norm_sub_item = self._normalize_type(sub_item_type)
+                    mapped_item_type = 'object' if sub_item_type.upper().startswith('STRUCT') else HIVE_TYPE_MAP_DECC_TYPE.get(sub_item_type.upper(), 'string')
+
+                    # 修正外层的 original_type 为 array 格式
+                    child_def["des"]["original_type"] = f"array< {norm_sub_item} >"
+                    child_def["original_type"] = f"array< {norm_sub_item} >"
+
                     child_def["items"] = {
                         "type": mapped_item_type,
                         "des": {
-                            "original_type": item_type.lower(),
+                            "original_type": norm_sub_item,
                             "aggr_type": tag,
-                            "sync": "YES"
-                        }
+                            "sync": "YES",
+                            "tpg_account_info_tag": {"is_account_info": self._is_account_info_tag(tag)},
+                            "ciphered_tag": {}
+                        },
+                        "items": None,
+                        "properties": None,
+                        "uneditable": ["data_subject", "user_region", "sync"],
+                        "patternProperties": None,
+                        "original_type": norm_sub_item
                     }
                 prop["properties"][key_name] = child_def
         return prop
