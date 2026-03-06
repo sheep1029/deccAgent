@@ -12,6 +12,7 @@ class JSONSchemaBuilder:
 
     def __init__(self) -> None:
         self.tag_manager = TagManager()
+        # Ensure compatibility with NCMD schema format
 
     def _is_account_info_tag(self, tag_id: str) -> bool:
         """
