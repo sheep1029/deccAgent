@@ -20,7 +20,7 @@ test_event = {
    "auto_submit": True,
    "additions": [
        {
-           "name": "extra_field_example",
+           "name": "extra_field_example_2",
            "type": "STRING",
            "comment": "Example of adding a field"
        },
