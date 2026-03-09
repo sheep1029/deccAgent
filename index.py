@@ -37,7 +37,7 @@ def _build_tasks(event: Dict[str, Any]) -> List[Dict[str, Any]]:
     region_input = event.get('region')
     tables_input = event.get('tables')
     owner = event.get('owner')
-    target_vgeo = event.get('target_vgeo')  
+    target_vgeo = event.get('target_vgeo')
     db_index = event.get('db_index')
     additions = event.get('additions') or []
     map_defs = event.get('map_defs') or {}
@@ -81,7 +81,7 @@ def _run_single_task(flow: DECCFlowV3, task: Dict[str, Any]) -> Dict[str, Any]:
             db_index=task['db_index'],
         )
         # 统一包装成功响应，便于客户端格式化
-        
+
         api = flow.api
         vgeo = REGION_INPUT_TO_VGEO.get(task['region_input'], 'ROW-TT')
         scenario = SCENARIO_BY_VGEO.get(vgeo, 5)
@@ -133,8 +133,12 @@ def _run_single_task(flow: DECCFlowV3, task: Dict[str, Any]) -> Dict[str, Any]:
         if not data_id:
             fallback_id = None
             try:
-                # create_data 返回 {'data': '<id>'}；更新可能返回 {'data_id': '<id>'}
-                fallback_id = result.get('data') or result.get('data_id')
+                # 优先从 result 顶层获取 (decc_flow 已保证注入)
+                fallback_id = result.get('data_id')
+                # 其次尝试从 data 字段获取
+                if not fallback_id:
+                    fallback_id = result.get('data')
+                # 最后尝试从错误消息中正则提取
                 if not fallback_id and isinstance(result.get('msg'), str):
                     import re
                     m = re.search(r"exist_data_id\s+is:\s*(\d+)", result['msg'])

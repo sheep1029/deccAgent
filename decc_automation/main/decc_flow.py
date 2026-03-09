@@ -146,6 +146,11 @@ class DECCFlowV3:
             print("="*50 + "\n")
 
             create_result = self.api.create_data(payload)
+
+            # 确保 data_id 在顶层 (通常 create_data 返回 {"data": "ID"})
+            if not create_result.get("data_id") and isinstance(create_result.get("data"), str):
+                create_result["data_id"] = create_result["data"]
+
             return create_result
 
         # 存在 → 走新增版本
@@ -209,6 +214,8 @@ class DECCFlowV3:
         print("="*50 + "\n")
 
         update_result = self.api.update_data_version(update_payload)
+        if isinstance(update_result, dict) and not update_result.get("data_id"):
+            update_result["data_id"] = data_record.get("data_id")
         return update_result
 
     def _add_extra_columns_to_ddl(self, ddl: str, extra_columns: List[Dict]) -> str:

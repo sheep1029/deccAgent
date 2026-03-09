@@ -1,4 +1,3 @@
-
 import json
 import logging
 import sys
@@ -15,9 +14,23 @@ logging.basicConfig(
 
 # 模拟的 Event 数据
 test_event = {
-   "region": "US",
-   "tables": "ad_dwa.dwa_ole_promocode_creation_advertiser_v2_df_utc0",
-   "owner": "zhuojinghao.1029"
+   "region": "US,EU",
+   "tables": "ad_dm.dm_web_ole_ad_label_df_utc0",
+   "owner": "zhuojinghao.1029",
+   # 新增 additions 字段
+   "additions": [
+       {
+           "name": "extra_field_1",
+           "type": "STRING",
+           "comment": "Test extra field 1"
+       },
+       {
+           "name": "extra_field_4",
+           "type": "BIGINT",
+           "comment": "Test extra field 4"
+       }
+   ],
+   "auto_submit": True  # 开启自动提交测试
 }
 
 print(f"🚀 开始执行测试，参数: {json.dumps(test_event, ensure_ascii=False)}")
@@ -36,12 +49,28 @@ try:
 
     body = json.loads(response.get('body', '{}'))
     if isinstance(body, dict):
-        if not body.get('success') and 'results' not in body:
-             print(f"\n❌ 业务逻辑执行失败: {body.get('error')}")
-        elif 'results' in body:
-             for res in body['results']:
-                 if not res.get('success'):
-                     print(f"\n❌ 子任务失败: {res.get('table_name')} - {res.get('error')}")
+        # 针对批量任务的响应结构处理
+        summary = body.get('summary')
+        if summary:
+            print(f"\n📊 汇总: 总计 {summary.get('total_tasks')}, 成功 {summary.get('successful')}, 失败 {summary.get('failed')}")
+
+        results = body.get('results', [])
+        for res in results:
+            region = res.get('region')
+            success = res.get('success')
+            url = res.get('url')
+            data_id = res.get('data_id')
+            submit_info = res.get('auto_submit', {})
+
+            status_icon = "✅" if success else "❌"
+            print(f"\n{status_icon} Region: {region}")
+            print(f"   Success: {success}")
+            if success:
+                print(f"   Data ID: {data_id}")
+                print(f"   URL: {url}")
+                print(f"   Auto Submit: Requested={submit_info.get('requested')}, Submitted={submit_info.get('submitted')}")
+            else:
+                print(f"   Error: {res.get('error')}")
 
 except Exception as e:
     print(f"\n❌ 发生未捕获异常: {e}")
