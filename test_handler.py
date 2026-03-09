@@ -15,12 +15,12 @@ logging.basicConfig(
 # 模拟的 Event 数据
 test_event = {
    "region": "US,EU",
-   "tables": "ad_dm.dm_web_ole_ad_label_df_utc0",
+   "tables": "ad_dwa.dwa_ole_promocode_creation_advertiser_v2_df_utc0",
    "owner": "zhuojinghao.1029",
-   "auto_submit": True,
+#    "auto_submit": True,
    "additions": [
        {
-           "name": "extra_field_example_2",
+           "name": "extra_field_example_3",
            "type": "STRING",
            "comment": "Example of adding a field"
        },

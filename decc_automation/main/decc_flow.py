@@ -84,8 +84,6 @@ class DECCFlowV3:
         channel_id = self._resolve_channel_id(channel_name, vgeo, owner, db_index)
 
         # 查数据是否存在
-        # 严格判断逻辑：只有当存在“已应用（Applied）”版本时，才视为真正的“存在”并走更新流程。
-        # 否则（如仅有草稿或从未创建），均视为“新建”逻辑（覆盖创建）。
         datas = self.api.get_data_list({
             "gateway": GATEWAY,
             "name": data_name.split(".")[-1],  # 仅表名
@@ -95,15 +93,21 @@ class DECCFlowV3:
             "page_size": 100,
         }).get("data", [])
 
-        is_really_exist = False
-        data_record = None
-
+        # DEBUG: 打印查询到的数据详情，用于排查 EU 版本问题
         if datas:
-            data_record = datas[0]
-            # 检查是否有 appliedVersion
-            applied_version = (data_record.get("data_version_states", {}) or {}).get(vgeo, {}).get("appliedVersion")
-            if applied_version is not None:
-                is_really_exist = True
+            print(f"\n[DEBUG] Found data for {data_name} ({vgeo}):")
+            print(json.dumps(datas[0], ensure_ascii=False, indent=2))
+            latest_state = (datas[0].get("latest_version_states") or {}).get(vgeo, {})
+            print(f"[DEBUG] Latest State ({vgeo}): {json.dumps(latest_state, ensure_ascii=False)}")
+
+        if not datas:
+            # 真正的“不存在” → 走创建
+            payload = self.service.build_create_payload(
+                channel_id, data_name, [owner], vgeo, scenario,
+                english_ddl, json_schema_str, direction_pairs,
+                description=ddl_info.description, reason=ddl_info.reason, extra_data=extra_data,
+                nested_idl=nested_idl
+            )
 
         # 拉DDL（VA对齐）并英文化 + 构建JSON Schema
         db, table = self._parse_data_name(data_name)
@@ -141,8 +145,8 @@ class DECCFlowV3:
         direction_pairs = [{"source_vgeo": vgeo, "target_vgeo": final_target_vgeo}]
         extra_data = {"region": region_real}
 
-        if not is_really_exist:
-            # 不存在（或仅有草稿） → 走创建
+        if not datas:
+            # 不存在 → 走创建
             payload = self.service.build_create_payload(
                 channel_id, data_name, [owner], vgeo, scenario,
                 english_ddl, json_schema_str, direction_pairs,
@@ -169,7 +173,7 @@ class DECCFlowV3:
             return create_result
 
         # 存在 → 走新增版本
-        # data_record 已经在上面获取过了
+        data_record = datas[0]
         # 读取上个“已应用”版本的详情，用于继承 reason/description
         applied_version = (data_record.get("data_version_states", {}) or {}).get(vgeo, {}).get("appliedVersion")
         applied_detail = None

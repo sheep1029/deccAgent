@@ -1,6 +1,7 @@
 import logging
 import re
-from typing import Dict, List, Any, Optional
+import json
+from typing import Dict, Any, List, Optional
 
 from decc_automation.config.constants import (
     DECC_V3_DATA_TYPE, DECC_V3_IDL_TYPE, GATEWAY, REASON
@@ -50,8 +51,19 @@ class DataVersionService:
 
         # 版本信息：更新不显式传version，让服务端生成新版本；upstream_version取当前版本
         current_version = base_detail.get("version")
+        # 修正：upstream_version 应该优先使用 resolve_target_version 传递进来的正确值（即当前操作的基础版本）
+        # 如果是覆盖草稿，则 upstream_version = 当前草稿版本
+        # 如果是基于已发布版本新建，则 upstream_version = 已发布版本
+        # 但服务端要求 update 时 upstream_version 必须与当前版本一致（或特定逻辑），这里保持与查询详情一致
         upstream_version = base_detail.get("upstream_version") or current_version
-        new_version = target_version if target_version is not None else (current_version or 0) + 1
+
+        # 针对草稿更新：如果不传 version，服务端会生成新版本号；传了 version 则覆盖。
+        # 我们的目标是：如果有草稿，覆盖它；如果没有，基于已应用版本新建。
+        # resolve_target_version 已经帮我们选定了 target_version（即最新草稿版本 或 新建版本）。
+        # 所以这里我们显式传递 version = target_version 以实现覆盖。
+        new_version = target_version
+        if new_version is None:
+             new_version = (current_version or 0) + 1
 
         # 处理extra.hdfs.list
         extra = extra_overrides if extra_overrides is not None else base_detail.get("extra", {}) or {}
@@ -137,18 +149,31 @@ class DataVersionService:
         latest_state = latest_info.get("latestVersionState")
         applied_version = applied_info.get("appliedVersion")
 
-        # 若已有草稿，直接在该草稿版本上更新
-        if latest_state == "draft" and latest_version is not None:
-            target_version = latest_version
-        else:
-            upstream_version = applied_version if applied_version is not None else latest_version
-            api.create_data_version({
-                "data_id": data_record["data_id"],
-                "gateway": GATEWAY,
-                "scenario": scenario,
-                "upstream_version": upstream_version,
-            })
-            refreshed = api.get_data_list({
+        # 强制创建新版本逻辑
+        # 不再覆盖 latest_version，而是始终创建新版本
+        # upstream_version 取自 applied_version（如果有）或 latest_version（如果只有草稿）
+        upstream_version = applied_version if applied_version is not None else latest_version
+        if upstream_version is None:
+             upstream_version = 0
+
+        # 调用 create_data_version 显式创建一个新草稿版本
+        # 这样可以避免列表延迟问题，且保证不覆盖旧草稿
+        new_version_resp = api.create_data_version({
+            "data_id": data_record["data_id"],
+            "gateway": GATEWAY,
+            "scenario": scenario,
+            "upstream_version": upstream_version,
+        })
+
+        # 从响应中获取新创建的版本号
+        target_version = new_version_resp.get("version")
+        print(f"[DEBUG] create_data_version response ({vgeo}): {json.dumps(new_version_resp, ensure_ascii=False)}") # 添加日志
+
+        if not target_version:
+             # 兜底：如果没有返回 version，尝试再次查询或推断
+             # 但通常 create_data_version 会返回 version
+             # 此时不得不回退到 ref_latest 逻辑，但加上显式延迟查询可能更好
+             refreshed = api.get_data_list({
                 "gateway": GATEWAY,
                 "state": 1,
                 "name": data_name,
@@ -157,19 +182,30 @@ class DataVersionService:
                 "page_number": 1,
                 "page_size": 100,
             }).get("data", [])
-            ref_latest = (refreshed[0].get("latest_version_states", {}) or {}).get(vgeo, {}) if refreshed else {}
-            target_version = ref_latest.get("latestVersion")
-            if target_version is None:
-                target_version = ((applied_version or latest_version or 0) + 1)
+             ref_latest = (refreshed[0].get("latest_version_states", {}) or {}).get(vgeo, {}) if refreshed else {}
+             target_version = ref_latest.get("latestVersion")
+             if target_version is None:
+                 # 极端保底：如果是首个版本，假设是 1；否则 +1
+                 target_version = (latest_version or 0) + 1
 
         # 拉取目标版本详情作为基线，并返回 upstream_version
+        # 注意：如果 target_version 为 0 或 None，可能导致异常，需兜底
+        if not target_version:
+             # 极端情况：创建了数据但没版本信息，强制设为 1
+             target_version = 1
+
         detail = api.get_data_version_detail({
             "data_id": data_record["data_id"],
             "version": target_version,
             "gateway": GATEWAY,
             "scenario": scenario,
         })
-        upstream_version = detail.get("upstream_version") or applied_version or latest_version or target_version - 1
+        # 修正 upstream_version 取值逻辑：优先取 detail 中的，其次取 applied，再次取 target-1
+        # 对于未发布过的草稿，upstream_version 可能是 0 或 null，此时应设为 current_version (即 target_version)
+        upstream_version_detail = detail.get("upstream_version")
+        if upstream_version_detail is not None and upstream_version_detail != 0:
+             upstream_version = upstream_version_detail
+        # 如果 detail 里没拿到（比如新建的），保持 create 时的 upstream_version 即可
 
         return {
             "target_version": target_version,

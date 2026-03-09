@@ -36,6 +36,11 @@ class JSONSchemaBuilder:
                              nested_map_defs: Optional[Dict[str, Dict[str, Any]]] = None,
                              llm_field_desc_map: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         tag = self.tag_manager.get_field_tag(field_name)
+        
+        # 强制修正 detection_uv 的标签为 4.2.1
+        if field_name == 'detection_uv':
+            tag = "4.2.1"
+            
         json_type = self._map_hive_type_to_json_type(field_type)
         desc = field_comment or f"Field {field_name} of type {field_type}"
         is_us = isinstance(vgeo, str) and vgeo.upper().startswith('US')

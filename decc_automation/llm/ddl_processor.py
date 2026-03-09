@@ -385,6 +385,23 @@ class LLMDDLProcessor:
         raw_sync_reason = llm_result.get('sync_reason', "")
         field_descriptions = llm_result.get('field_descriptions', {})
 
+        # 检查是否包含 detection_uv 字段，如果没有则添加
+        has_detection_uv = False
+        for col in parsed_ddl.columns:
+            if col['name'] == 'detection_uv':
+                has_detection_uv = True
+                break
+        
+        if not has_detection_uv:
+            logger.info("表中缺少 detection_uv 字段，正在自动添加...")
+            parsed_ddl.columns.append({
+                'name': 'detection_uv',
+                'type': 'STRING',
+                'comment': 'User detection metrics'
+            })
+            # 同时为新字段添加描述
+            field_descriptions['detection_uv'] = "An example field added for user detection metrics, likely tracking unique visitors or user interactions related to the ad"
+
         # 清理和验证表描述
         table_description = self._clean_and_verify_description(raw_table_description)
         sync_reason = self._clean_and_verify_description(raw_sync_reason)

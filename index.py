@@ -166,9 +166,11 @@ def _run_single_task(flow: DECCFlowV3, task: Dict[str, Any]) -> Dict[str, Any]:
                 'scenario': scenario,
             }
             try:
-                api.submit_data_version(submit_payload)
+                print(f"[DEBUG] Submitting data_id={data_id}, version={latest_version}") # 打印提交参数
+                resp = api.submit_data_version(submit_payload)
+                print(f"[DEBUG] Submit response: {json.dumps(resp, ensure_ascii=False)}") # 打印提交响应
                 auto_submit_info['submitted'] = True
-            except Exception:
+            except Exception as e:
                 auto_submit_info['submitted'] = False
                 auto_submit_info['error'] = 'submit_failed'
         url = f"https://decc.tiktok-row.net/v3/des-hdfs/data?dataId={data_id}" if data_id else "N/A"
