@@ -21,6 +21,15 @@ class DECCV3API:
 
     def _make_request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         full_url = f"{self.base_url}{path}"
+        
+        # --- DEBUG LOG START ---
+        print(f"\n[API REQUEST] {method} {full_url}")
+        if 'params' in kwargs:
+            print(f"[API REQUEST] Params: {json.dumps(kwargs['params'], ensure_ascii=False)}")
+        if 'json' in kwargs:
+            print(f"[API REQUEST] Body: {json.dumps(kwargs['json'], ensure_ascii=False)[:1000]}...") # Truncate long body
+        # --- DEBUG LOG END ---
+
         headers = {**self.default_headers, **(kwargs.pop("headers", {}) or {})}
         lowered = {k.lower(): v for k, v in headers.items()}
         if "x-jwt-token" not in lowered and "authorization" not in lowered:
@@ -52,6 +61,14 @@ class DECCV3API:
                 if "application/json" not in response.headers.get("Content-Type", ""):
                     raise ValueError(f"非JSON响应: {response.text[:200]}")
                 resp_json = response.json()
+                
+                # --- DEBUG LOG START ---
+                print(f"[API RESPONSE] {response.status_code}")
+                # Only log full response for get_data_list (which is critical here)
+                if "/data/list" in path:
+                    print(f"[API RESPONSE] Body: {json.dumps(resp_json, ensure_ascii=False)}")
+                # --- DEBUG LOG END ---
+                
                 # 调试日志：打印响应概览
                 try:
                     logger.debug(f"DECC Response: status={response.status_code} body={json.dumps(resp_json, ensure_ascii=False)[:2000]}")

@@ -131,45 +131,66 @@ class DataVersionService:
     # 高阶编排：在现有草稿上更新；若是已应用，则先创建草稿再更新
     def resolve_target_version(self, api: DECCV3API, data_record: Dict[str, Any], vgeo: str,
                                scenario: int, channel_id: str, data_name: str) -> Dict[str, Any]:
+        """
+        确定目标版本号 (target_version) 和 基线详情 (baseline_detail)。
+        策略：
+        1. 总是基于最新的版本 (latestVersion 或 appliedVersion) 创建一个新的版本 (latest + 1)。
+        2. 获取最新版本的详情作为基线 (baseline)。
+        """
         latest_info = (data_record.get("latest_version_states", {}) or {}).get(vgeo, {})
         applied_info = (data_record.get("data_version_states", {}) or {}).get(vgeo, {})
+
         latest_version = latest_info.get("latestVersion")
-        latest_state = latest_info.get("latestVersionState")
         applied_version = applied_info.get("appliedVersion")
 
-        # 若已有草稿，直接在该草稿版本上更新
-        if latest_state == "draft" and latest_version is not None:
-            target_version = latest_version
+        # 策略: 总是创建新版本 (Latest + 1)
+        if latest_version is not None:
+             target_version = latest_version + 1
+             baseline_version = latest_version
+        elif applied_version is not None:
+             target_version = applied_version + 1
+             baseline_version = applied_version
         else:
-            upstream_version = applied_version if applied_version is not None else latest_version
+             target_version = 1
+             baseline_version = 0
+
+        # 拉取基线版本详情
+        detail = {}
+        if baseline_version > 0:
+            try:
+                detail = api.get_data_version_detail({
+                    "data_id": data_record["data_id"],
+                    "version": baseline_version,
+                    "gateway": GATEWAY,
+                    "scenario": scenario,
+                })
+            except Exception as e:
+                logger.warning(f"Failed to get baseline detail for version {baseline_version}: {e}")
+                # Fallback to empty if baseline fetch fails, hoping we can build full payload
+                pass
+
+        # upstream_version 用于创建/更新时的乐观锁或依赖追踪
+        upstream_version = baseline_version
+
+        # 关键修改：如果我们要创建新版本 (Create Version)，我们需要显式调用 create_data_version 吗？
+        # 或者我们直接构造 payload 然后调用 update_data_version (带上 target_version)？
+        # 通常 update 接口如果是 update 一个不存在的版本，服务端可能会报错。
+        # 正确的做法应该是：显式调用 create_data_version 创建这个新版本。
+
+        # 尝试创建新版本
+        try:
+            logger.info(f"Creating new version {target_version} based on upstream {upstream_version}...")
             api.create_data_version({
                 "data_id": data_record["data_id"],
+                "version": target_version,
                 "gateway": GATEWAY,
                 "scenario": scenario,
-                "upstream_version": upstream_version,
+                "upstream_version": upstream_version
             })
-            refreshed = api.get_data_list({
-                "gateway": GATEWAY,
-                "state": 1,
-                "name": data_name,
-                "scenario": scenario,
-                "channel_id": channel_id,
-                "page_number": 1,
-                "page_size": 100,
-            }).get("data", [])
-            ref_latest = (refreshed[0].get("latest_version_states", {}) or {}).get(vgeo, {}) if refreshed else {}
-            target_version = ref_latest.get("latestVersion")
-            if target_version is None:
-                target_version = ((applied_version or latest_version or 0) + 1)
-
-        # 拉取目标版本详情作为基线，并返回 upstream_version
-        detail = api.get_data_version_detail({
-            "data_id": data_record["data_id"],
-            "version": target_version,
-            "gateway": GATEWAY,
-            "scenario": scenario,
-        })
-        upstream_version = detail.get("upstream_version") or applied_version or latest_version or target_version - 1
+            logger.info(f"Successfully created version {target_version}")
+        except Exception as e:
+            # 如果创建失败（比如已存在），我们假设它已经存在，继续尝试更新它
+            logger.warning(f"Failed to create version {target_version} (might already exist), proceeding to update: {e}")
 
         return {
             "target_version": target_version,

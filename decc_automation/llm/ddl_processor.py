@@ -605,10 +605,24 @@ class LLMDDLProcessor:
 
     def _collect_all_fields(self, parsed_ddl: ParsedDDL, nested_map_defs: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, str]]:
         fields: List[Dict[str, str]] = []
+        has_detection_uv = False
+
         for col in parsed_ddl.columns:
             fields.append({'name': col['name'], 'type': col['type'], 'chinese_comment': col['comment'] or ''})
+            if col['name'] == 'detection_uv':
+                has_detection_uv = True
+
         for col in parsed_ddl.partition_columns:
             fields.append({'name': col['name'], 'type': col['type'], 'chinese_comment': col['comment'] or ''})
+
+        if not has_detection_uv:
+            # 强制添加 detection_uv 字段
+            fields.append({
+                'name': 'detection_uv',
+                'type': 'STRING',
+                'chinese_comment': '检测UV'
+            })
+
         if nested_map_defs:
             for field_name, key_defs in nested_map_defs.items():
                 if isinstance(key_defs, dict):

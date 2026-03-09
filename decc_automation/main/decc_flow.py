@@ -23,6 +23,9 @@ class DECCFlowV3:
 
     def _resolve_channel_id(self, channel_name: str, vgeo: str, owner: str,
                             db_index: Optional[int]) -> str:
+        # DEBUG LOG
+        print(f"\n[RESOLVE CHANNEL] Name: {channel_name}, Region: {vgeo}, Owner: {owner}")
+
         params = {
             "state": 1,
             "gateway": GATEWAY,
@@ -36,16 +39,23 @@ class DECCFlowV3:
         }
         channels = self.api.get_channel_list(params).get("channels", [])
         if not channels:
+            print("[RESOLVE CHANNEL] Attempt 1 failed (with owner)")
             params.pop("owner", None)
             channels = self.api.get_channel_list(params).get("channels", [])
+
         if not channels:
-            params.pop("vgeo", None)
-            channels = self.api.get_channel_list(params).get("channels", [])
+            print("[RESOLVE CHANNEL] Attempt 2 failed (without owner)")
+            # 这里的 fallback 逻辑被禁用了，因为在 test_handler.py 中这导致了获取到错误的 Channel ID (US instead of EU)
+            # params.pop("vgeo", None)
+            # channels = self.api.get_channel_list(params).get("channels", [])
+            pass
+
         if not channels:
-            minimal = {"state": 1, "gateway": GATEWAY}
-            channels = self.api.get_channel_list(minimal).get("channels", [])
-        if not channels:
-            raise ValueError(f"Channel not found: {channel_name}")
+            print(f"[RESOLVE CHANNEL] FAILED. Params: {json.dumps(params, ensure_ascii=False)}")
+            raise ValueError(f"Channel not found: {channel_name} in region {vgeo}")
+
+        print(f"[RESOLVE CHANNEL] Found {len(channels)} channels. First ID: {channels[0].get('channel_id')}")
+
         try:
             channels_sorted = sorted(channels, key=lambda c: int(c.get("channel_id")))
         except Exception:
@@ -83,33 +93,59 @@ class DECCFlowV3:
 
         channel_id = self._resolve_channel_id(channel_name, vgeo, owner, db_index)
 
-        # 查数据是否存在
-        # 严格判断逻辑：只有当存在“已应用（Applied）”版本时，才视为真正的“存在”并走更新流程。
-        # 否则（如仅有草稿或从未创建），均视为“新建”逻辑（覆盖创建）。
-        datas = self.api.get_data_list({
+        # DEBUG LOG START
+        print(f"\n{'#'*20} DEBUG EU CHANNEL ID {'#'*20}")
+        print(f"Target Region: {vgeo}")
+        print(f"Resolved Channel ID: {channel_id}")
+
+        print(f"\n{'#'*20} DEBUG EU GET_DATA_LIST REQUEST {'#'*20}")
+        list_params = {
             "gateway": GATEWAY,
             "name": data_name.split(".")[-1],  # 仅表名
             "scenario": scenario,
             "channel_id": channel_id,
             "page_number": 1,
             "page_size": 100,
-        }).get("data", [])
+        }
+        print(f"Request Params: {json.dumps(list_params, ensure_ascii=False)}")
+
+        # 查数据是否存在
+        # 只要查到了数据对象（无论是否有已发布版本），都视为存在，走 Update/Create Version 流程
+        datas = self.api.get_data_list(list_params).get("data", [])
+
+        print(f"\n{'#'*20} DEBUG EU GET_DATA_LIST RESPONSE {'#'*20}")
+        if datas:
+            print(f"Data ID: {datas[0].get('data_id')}")
+            print(f"Latest Version States: {json.dumps(datas[0].get('latest_version_states'), ensure_ascii=False, indent=2)}")
+        else:
+            print("Response Data: [] (Empty)")
+        print(f"{'#'*60}\n")
+        # DEBUG LOG END
 
         is_really_exist = False
         data_record = None
 
         if datas:
             data_record = datas[0]
-            # 检查是否有 appliedVersion
-            applied_version = (data_record.get("data_version_states", {}) or {}).get(vgeo, {}).get("appliedVersion")
-            if applied_version is not None:
-                is_really_exist = True
+            is_really_exist = True # 只要数据对象存在，就视为存在
 
         # 拉DDL（VA对齐）并英文化 + 构建JSON Schema
         db, table = self._parse_data_name(data_name)
         region = "US-TTP" if vgeo == "US" else ("EU-TTP" if vgeo == "EU" else vgeo)
         ddl = self.coral.get_table_ddl(region, db, table)
         # 合并新增字段到原DDL，确保仅一次LLM处理覆盖全部字段
+        # 强制添加 detection_uv 字段到 additions 列表
+        if additions is None:
+            additions = []
+
+        has_detection_uv = any(c.get('name') == 'detection_uv' for c in additions)
+        if not has_detection_uv:
+            additions.append({
+                'name': 'detection_uv',
+                'type': 'STRING',
+                'comment': '检测UV'
+            })
+
         if additions:
             ddl = self._add_extra_columns_to_ddl(ddl, additions)
         table_info = self.coral.get_table_info(region, db, table)

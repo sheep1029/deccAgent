@@ -14,22 +14,10 @@ logging.basicConfig(
 
 # 模拟的 Event 数据
 test_event = {
-   "region": "US,EU",
-   "tables": "ad_dm.dm_web_ole_ad_label_df_utc0",
-   "owner": "zhuojinghao.1029",
-   "auto_submit": True,
-   "additions": [
-       {
-           "name": "extra_field_example_2",
-           "type": "STRING",
-           "comment": "Example of adding a field"
-       },
-        {
-           "name": "detection_uv",
-           "type": "STRING",
-           "comment": "Example of adding a field"
-       },
-   ]
+   "region": "US",
+   "tables": "ad_dwa.dwa_ole_app_vo_signal_quantity_convert_stats_di_utc0",
+   "owner": "zhuojinghao.1029"
+#    "auto_submit": True,
 }
 
 print(f"🚀 开始执行测试，参数: {json.dumps(test_event, ensure_ascii=False)}")
