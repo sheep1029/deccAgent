@@ -152,6 +152,9 @@ class DECCFlowV3:
             if not create_result.get("data_id") and isinstance(create_result.get("data"), str):
                 create_result["data_id"] = create_result["data"]
 
+            # 注入 version，新建默认为 1
+            create_result["version"] = 1
+
             return create_result
 
         # 存在 → 走新增版本
@@ -216,8 +219,13 @@ class DECCFlowV3:
         print("="*50 + "\n")
 
         update_result = self.api.update_data_version(update_payload)
-        if isinstance(update_result, dict) and not update_result.get("data_id"):
-            update_result["data_id"] = data_record.get("data_id")
+        if isinstance(update_result, dict):
+            if not update_result.get("data_id"):
+                update_result["data_id"] = data_record.get("data_id")
+            # 注入 version
+            if isinstance(update_payload.get("data_version"), dict):
+                update_result["version"] = update_payload["data_version"].get("version")
+
         return update_result
 
     def _add_extra_columns_to_ddl(self, ddl: str, extra_columns: List[Dict]) -> str:

@@ -114,6 +114,11 @@ def _run_single_task(flow: DECCFlowV3, task: Dict[str, Any]) -> Dict[str, Any]:
         # 查询数据列表以获取 data_id
         data_id = None
         latest_version = None
+
+        # 优先从 result 获取 version (避免列表延迟)
+        if isinstance(result, dict):
+            latest_version = result.get('version')
+
         if channel_id:
             table_name = task['data_name'].split('.', 1)[1]
             datas = api.get_data_list({
@@ -126,8 +131,10 @@ def _run_single_task(flow: DECCFlowV3, task: Dict[str, Any]) -> Dict[str, Any]:
             }).get('data', [])
             if datas:
                 data_id = datas[0].get('data_id')
-                latest = (datas[0].get('latest_version_states') or {}).get(vgeo, {})
-                latest_version = latest.get('latestVersion')
+                # 仅当 result 中没有 version 时才使用列表中的 version
+                if latest_version is None:
+                    latest = (datas[0].get('latest_version_states') or {}).get(vgeo, {})
+                    latest_version = latest.get('latestVersion')
 
         # 兜底：若未能通过列表拿到 data_id，则尝试使用主流程返回的 result 字段
         if not data_id:
