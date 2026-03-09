@@ -135,7 +135,8 @@ class DECCFlowV3:
             payload = self.service.build_create_payload(
                 channel_id, data_name, [owner], vgeo, scenario,
                 english_ddl, json_schema_str, direction_pairs,
-                description=ddl_info.description, extra_data=extra_data
+                description=ddl_info.description, reason=ddl_info.reason, extra_data=extra_data,
+                nested_idl=nested_idl
             )
             self.service._prevalidate_payload_no_chinese(payload)
 
@@ -177,7 +178,7 @@ class DECCFlowV3:
         )
         # 统一设置 reason/description：
         # - 若存在已应用版本，则继承其 reason/description
-        # - 若不存在已应用版本，则采用本次 LLM 生成的表描述（ddl_info.description）作为 description
+        # - 若不存在已应用版本，则采用本次 LLM 生成的表描述和 Reason
         if applied_detail:
             applied_reason = applied_detail.get("reason") or REASON
             applied_desc = applied_detail.get("description") or (detail.get("description") or "")
@@ -189,11 +190,12 @@ class DECCFlowV3:
                 update_payload["data_version"]["description"] = applied_desc
         else:
             llm_desc = ddl_info.description or (detail.get("description") or "")
+            llm_reason = ddl_info.reason or REASON
             if isinstance(update_payload.get("data"), dict):
-                update_payload["data"]["reason"] = REASON
+                update_payload["data"]["reason"] = llm_reason
                 update_payload["data"]["description"] = llm_desc
             if isinstance(update_payload.get("data_version"), dict):
-                update_payload["data_version"]["reason"] = REASON
+                update_payload["data_version"]["reason"] = llm_reason
                 update_payload["data_version"]["description"] = llm_desc
 
         # 覆盖英文化IDL与新Schema

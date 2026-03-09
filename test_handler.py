@@ -17,20 +17,19 @@ test_event = {
    "region": "US,EU",
    "tables": "ad_dm.dm_web_ole_ad_label_df_utc0",
    "owner": "zhuojinghao.1029",
-   # 新增 additions 字段
+   "auto_submit": True,
    "additions": [
        {
-           "name": "extra_field_1",
+           "name": "extra_field_example",
            "type": "STRING",
-           "comment": "Test extra field 1"
+           "comment": "Example of adding a field"
        },
-       {
-           "name": "extra_field_4",
-           "type": "BIGINT",
-           "comment": "Test extra field 4"
-       }
-   ],
-   "auto_submit": True  # 开启自动提交测试
+        {
+           "name": "detection_uv",
+           "type": "STRING",
+           "comment": "Example of adding a field"
+       },
+   ]
 }
 
 print(f"🚀 开始执行测试，参数: {json.dumps(test_event, ensure_ascii=False)}")

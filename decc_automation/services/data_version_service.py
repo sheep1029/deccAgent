@@ -84,12 +84,13 @@ class DataVersionService:
                            vgeo: str, scenario: int, idl_content: str,
                            json_schema_str: str, direction_pairs: List[Dict[str, str]],
                            description: str,
+                           reason: Optional[str] = None,
                            extra_data: Optional[Dict[str, Any]] = None,
                            nested_idl: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """构造创建payload"""
         extra = extra_data or {"region": f"{vgeo}-TTP"}
-        # 统一使用常量中的 REASON
-        reason_const = REASON
+        # 优先使用传入的 reason，否则使用常量
+        reason_const = reason or REASON
         return {
             "gateway": GATEWAY,
             # 顶层scenario按列表传递以兼容接口的[]common.Scenario

@@ -38,6 +38,7 @@ class DDLInfo:
     partition_columns: List[ColumnInfo] = None
     # 一次性LLM生成的字段描述映射（包含map子键：field.key）
     field_desc_map: Dict[str, str] = None
+    reason: str = ""
 
 
 @dataclass
@@ -238,7 +239,7 @@ class LLMDDLProcessor:
         all_fields = self._collect_all_fields(parsed_ddl, nested_map_defs)
 
         prompt = f"""
-基于以下数据库表信息，生成详细的表描述和所有字段的英文描述。
+基于以下数据库表信息，生成详细的表描述、同步原因（Sync Reason）和所有字段的英文描述。
 
 表名: {parsed_ddl.table_name}
 数据库: {parsed_ddl.database}
@@ -246,22 +247,34 @@ class LLMDDLProcessor:
 {json.dumps(all_fields, ensure_ascii=False, indent=2)}
 
 要求：
-1. 首先根据表名和字段含义推断表的业务用途，生成具体、专业的英文表描述（不少于50个字符）
-2. 为每个字段生成详细的英文描述（不少于20个字符），基于中文注释进行准确翻译和扩展
-3. 如果字段的中文注释很简单（如"field date"、"日期字段"等），要根据字段名和类型推断其具体业务含义，生成更有意义的描述
-4. 如果字段没有中文注释，根据字段名和类型推断其含义
-5. 输出格式为JSON，包含"table_description"和"field_descriptions"两个键
-6. field_descriptions是一个对象，键为字段名，值为英文描述
-7. 只返回JSON，不要添加其他解释
-8. **非常重要**: 所有生成的描述都必须是纯英文，绝对不能包含任何中文字符。
+1. **表描述 (table_description)**：
+   - 参考以下风格生成，根据实际表内容进行调整（不要照抄，要替换为实际的业务含义）：
+   - 模板："This dataset contains aggregated user-level view behavior metrics, including video impressions, watch time, and engagement interactions, derived from raw activity logs for daily performance tracking."
+   - 必须是不少于50个字符的详细英文描述。
+
+2. **同步原因 (sync_reason)**：
+   - 参考以下模板生成，可以根据表的具体用途微调：
+   - 模板："This dataset requires regular synchronization with downstream analytics platforms to monitor key performance indicators and support business decision-making processes."
+
+3. **字段描述 (field_descriptions)**：
+   - 为每个字段生成详细的英文描述（不少于20个字符），基于中文注释进行准确翻译和扩展。
+   - 如果字段的中文注释很简单，要根据字段名和类型推断其具体业务含义。
+   - 绝对不能包含任何中文字符。
+
+4. **输出格式**：
+   - 返回 JSON 对象，包含 "table_description", "sync_reason", "field_descriptions"。
+   - field_descriptions 是一个对象，键为字段名，值为英文描述。
+
+5. **非常重要**: 所有生成的内容都必须是纯英文，绝对不能包含任何中文字符。
 
 示例输出格式：
 ```json
 {{
-  "table_description": "Detailed description of what this table contains and its business purpose",
+  "table_description": "This dataset contains ...",
+  "sync_reason": "This dataset requires ...",
   "field_descriptions": {{
-    "field1": "Detailed English description for field1",
-    "field2": "Detailed English description for field2"
+    "field1": "Description ...",
+    "field2": "Description ..."
   }}
 }}
 ```
@@ -300,13 +313,20 @@ class LLMDDLProcessor:
                 if name not in field_descriptions or not str(field_descriptions.get(name) or "").strip():
                     missing_fields.append(name)
             table_desc = str(result.get('table_description', '') or '').strip()
+            sync_reason = str(result.get('sync_reason', '') or '').strip()
+
             if missing_fields or not table_desc:
-                raise ValueError(
+                # 如果 sync_reason 为空，可以使用默认值兜底，或者抛错。这里先允许为空，后续逻辑处理
+                pass
+
+            if missing_fields or not table_desc:
+                 raise ValueError(
                     f"LLM未返回完整描述，缺失字段: {', '.join(missing_fields) if missing_fields else '无'}；表描述为空"
                 )
 
             return {
                 'table_description': table_desc,
+                'sync_reason': sync_reason,
                 'field_descriptions': field_descriptions
             }
 
@@ -362,10 +382,12 @@ class LLMDDLProcessor:
 
         # 提取表描述和字段描述
         raw_table_description = llm_result.get('table_description', "")
+        raw_sync_reason = llm_result.get('sync_reason', "")
         field_descriptions = llm_result.get('field_descriptions', {})
 
         # 清理和验证表描述
         table_description = self._clean_and_verify_description(raw_table_description)
+        sync_reason = self._clean_and_verify_description(raw_sync_reason)
 
         # US 环境下对合作数据追加说明（用于英文DDL字段COMMENT保持与JSON Schema一致）
         tag_manager = TagManager()
@@ -395,7 +417,8 @@ class LLMDDLProcessor:
             columns=columns,
             region=parsed_ddl.region,
             partition_columns=partition_columns,
-            field_desc_map=field_desc_map
+            field_desc_map=field_desc_map,
+            reason=sync_reason
         )
 
 
